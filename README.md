@@ -1,8 +1,12 @@
-a simple AXI-Lite peripheral which consists of two 4kx32 blockrams memory mapped into the AXI address space
+a simple AXI-Lite peripheral which consists of two 2k x 32 BlockRAMs memory mapped into the AXI address space
 
+	RAM0 = BASE+0x0000 through BASE+0x1FFC
+	RAM1 = BASE+0x2000 through BASE+0x3FFC
 
-	RAM0 = 0xABCD0000-0xABCD0FFF
-	RAM1 = 0xBEEF0000-0xBEEF0FFF
+So when adding this module to a Zynq/Kria design, choose the base address to be whatever you want, 
+and the range should be 16k (2 RAMs x 2k words/RAM x 4 bytes/word)
+
+This module does not support byte level access. All reads and writes should be 32 bits.
 
 source file is dualram_axilite.vhd
 

@@ -1,6 +1,18 @@
--- dualram_axilite: a (hopefully!) simple axi-lite example
+-- dualram_axilite: a simple axi-lite example
 -- map two single port block RAMs into the 32 bit AXI address space
--- each RAM is 4k x 32 bits
+-- each RAM is 2k x 32 bits, and must be read and written 32 bits at a time
+--
+-- the first word of RAM0 is BASE_ADDR + 0x0000
+-- the next word of RAM0 is BASE_ADDR + 0x0004
+-- the last word of RAM0 is BASE_ADDR + 0x1FFC
+-- 
+-- the first word of RAM1 is BASE_ADDR + 0x2000
+-- the next word of RAM1 is BASE_ADDR + 0x2004
+-- the last word of RAM1 is BASE_ADDR + 0x3FFC
+--
+-- So when adding this block into the Zynq/Kria design, choose the base address to be whatever
+-- you want, and the total range should be: 2 x 2k x 4 bytes = 16k 
+-- 
 -- Jamieson Olsen <jamieson@fnal.gov>
 
 library ieee;
@@ -23,7 +35,7 @@ entity dualram_axilite is
 		S_AXI_AWVALID	: in std_logic;
 		S_AXI_AWREADY	: out std_logic;
 		S_AXI_WDATA	: in std_logic_vector(C_S_AXI_DATA_WIDTH-1 downto 0);
-		S_AXI_WSTRB	: in std_logic_vector((C_S_AXI_DATA_WIDTH/8)-1 downto 0);
+		S_AXI_WSTRB	: in std_logic_vector((C_S_AXI_DATA_WIDTH/8)-1 downto 0); -- 32 bits writes only
 		S_AXI_WVALID	: in std_logic;
 		S_AXI_WREADY	: out std_logic;
 		S_AXI_BRESP	: out std_logic_vector(1 downto 0);
@@ -54,14 +66,17 @@ architecture dualram_axilite_arch of dualram_axilite is
 	signal axi_rvalid	: std_logic;
 
 	signal rden, wren: std_logic;
-	signal ram0_wea, ram1_wea: std_logic_vector(3 downto 0);
+	signal ram0_wea, ram1_wea: std_logic_vector(0 downto 0);
 	signal aw_en: std_logic;
     signal ram0_douta, ram1_douta, ram_dout: std_logic_vector(31 downto 0);
     signal addra: std_logic_vector(11 downto 0);
 
-    -- define the address range for each 4k RAM 
-    constant RAM0_ADDR: std_logic_vector(31 downto 0) := "10101011110011010000------------";  -- 0xABCD0000-0xABCD0FFF
-    constant RAM1_ADDR: std_logic_vector(31 downto 0) := "10111110111011110000------------";  -- 0xBEEF0000-0xBEEF0FFF
+    -- define the address range for each RAM relative to the BASE ADDRESS
+    -- each RAM is 2k x 32 but since AXI address is BYTE BASED the BLOCKRAM address (11) bits 
+    -- does not include the lower 2 bits of the AXI address
+ 
+    constant RAM0_ADDR: std_logic_vector(31 downto 0) := "0000000000000000000-----------00";  -- 0x0000 - 0x1FFC
+    constant RAM1_ADDR: std_logic_vector(31 downto 0) := "0000000000000000001-----------00";  -- 0x2000 - 0x3FFC
 
 begin
 
@@ -262,9 +277,9 @@ begin
 	  end if;
 	end process;
 
--- memory map two 4kx32 RAMs into the AXI 32 bit address space
--- each RAM has a 12 bit address bus which connects 
--- to the lower 12 bits of the AXI address space.
+-- memory map two 2kx32 RAMs into the AXI 32 bit address space
+-- each RAM has a 11 bit address bus which connects 
+-- to the lower 12 bits of the AXI address space BUT shifted by 2 bits due to AXI bytewide access
 
 -- NOTE: we have TWO address pointers in AXI: a 32 bit write address pointer
 -- (axi_awaddr) and a 32 bit read address pointer (axi_araddr). The issue here is that
@@ -272,21 +287,17 @@ begin
 -- address pointers depending on whether the AXI master is trying to write to the memory
 -- or read from it. 
 
-addra <= axi_awaddr(11 downto 0) when (wren='1') else axi_araddr(11 downto 0);
+addra <= axi_awaddr(13 downto 2) when (wren='1') else axi_araddr(13 downto 2);
 
--- now we need to map our 4k memory into the 32 bit address space, we'll do this manually.
--- the 12 blockram address lines will connect to the lower 12 bits of the 32 bit AXI address
+-- now we need to map our 2k memory into the 32 bit address space, we'll do this manually.
+-- the 11 blockram address lines will connect to the lower 12 bits of the 32 bit AXI address
 -- space, which means that our RAMs will line up with 4k boundaries in the address space. BUT
 -- we want our RAMs to ONLY appear ONCE in the address space, so we must decode the upper
 -- bits of the address too, that's what the std_match is doing for us here. std_match ignores the
 -- "----" don't care bits in the constants RAM0_ADDR and RAM1_ADDR
--- 
--- in other words, the RAM write enable signal is asserted ONLY when the AXI master is trying
--- to write to this module AND the upper 20 bits of the address are X"ABCD0" (write to RAM0) or 
--- X"BEEF0" (write to RAM1).
 
-ram0_wea <= "1111" when ( wren='1' and std_match(axi_awaddr, RAM0_ADDR) ) else "0000";
-ram1_wea <= "1111" when ( wren='1' and std_match(axi_awaddr, RAM1_ADDR) ) else "0000";
+ram0_wea <= "1" when ( wren='1' and std_match(axi_awaddr, RAM0_ADDR) ) else "0";
+ram1_wea <= "1" when ( wren='1' and std_match(axi_awaddr, RAM1_ADDR) ) else "0";
 
 -- When the AXI master tries to read from this module choose which RAM to send back,
 -- based on the address range, again we're using std_match to handle the don't care bits
@@ -300,7 +311,7 @@ ram_dout <= ram0_douta when std_match(axi_araddr, RAM0_ADDR) else
 
 ram0_inst : xpm_memory_spram
 generic map (   
-    ADDR_WIDTH_A => 12, -- 4096 address spaces 0x000-0xFFF
+    ADDR_WIDTH_A => 11, -- 2048 address spaces 0x000-0x7FF
     AUTO_SLEEP_TIME => 0,
     BYTE_WRITE_WIDTH_A => 32,
     CASCADE_HEIGHT => 0,
@@ -344,7 +355,7 @@ port map (
 
 ram1_inst : xpm_memory_spram
 generic map (   
-    ADDR_WIDTH_A => 12, -- 4096 address spaces 0x000-0xFFF
+    ADDR_WIDTH_A => 11, -- 2048 address spaces 0x000-0x7FF
     AUTO_SLEEP_TIME => 0,
     BYTE_WRITE_WIDTH_A => 32,
     CASCADE_HEIGHT => 0,
