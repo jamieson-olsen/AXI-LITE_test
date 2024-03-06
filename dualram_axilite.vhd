@@ -69,7 +69,7 @@ architecture dualram_axilite_arch of dualram_axilite is
 	signal ram0_wea, ram1_wea: std_logic_vector(0 downto 0);
 	signal aw_en: std_logic;
     signal ram0_douta, ram1_douta, ram_dout: std_logic_vector(31 downto 0);
-    signal addra: std_logic_vector(11 downto 0);
+    signal addra: std_logic_vector(10 downto 0);
 
     -- define the address range for each RAM relative to the BASE ADDRESS
     -- each RAM is 2k x 32 but since AXI address is BYTE BASED the BLOCKRAM address (11) bits 
@@ -285,9 +285,9 @@ begin
 -- (axi_awaddr) and a 32 bit read address pointer (axi_araddr). The issue here is that
 -- our RAMs have only ONE address port (addra), so we need to switch between these two
 -- address pointers depending on whether the AXI master is trying to write to the memory
--- or read from it. 
+-- or read from it. addra is 11 bits
 
-addra <= axi_awaddr(13 downto 2) when (wren='1') else axi_araddr(13 downto 2);
+addra <= axi_awaddr(12 downto 2) when (wren='1') else axi_araddr(12 downto 2);
 
 -- now we need to map our 2k memory into the 32 bit address space, we'll do this manually.
 -- the 11 blockram address lines will connect to the lower 12 bits of the 32 bit AXI address
