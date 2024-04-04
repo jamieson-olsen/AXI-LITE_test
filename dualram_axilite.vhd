@@ -1,26 +1,37 @@
 -- dualram_axilite: a simple axi-lite example
 -- map two single port block RAMs into the 32 bit AXI address space
--- each RAM is 2k x 32 bits, and must be read and written 32 bits at a time
+-- each RAM is 1k x 32 bits, and must be read and written 32 bits at a time
 --
--- the first word of RAM0 is BASE_ADDR + 0x0000
--- the next word of RAM0 is BASE_ADDR + 0x0004
--- the last word of RAM0 is BASE_ADDR + 0x1FFC
--- 
--- the first word of RAM1 is BASE_ADDR + 0x2000
--- the next word of RAM1 is BASE_ADDR + 0x2004
--- the last word of RAM1 is BASE_ADDR + 0x3FFC
---
--- So when adding this block into the Zynq/Kria design, choose the base address to be whatever
--- you want, and the total range should be: 2 x 2k x 4 bytes = 16k 
--- 
+-- The AXI-LITE slave has no concept of a base address; that is handled by the AXI master
+-- and AXI interconnect configuration. When this module is added to the design the AXI master
+-- must be told what the base address of this module is, and what the size of the memory block is
+-- in bytes. In this case we have 2 BlockRAMs, each is 1k x 32, or 4k bytes. The BlockRAMs are 
+-- adjecent, so the total memory size is 8k bytes and the base address of this module must fall on
+-- an 8k byte boundary.
+
+-- AXI address (bytes)     BlockRAM address (15 bits)      
+-- BASE+0                  000 0000 0000 0000
+-- BASE+4                  000 0000 0000 0001
+-- BASE+8                  000 0000 0000 0010
+-- BASE+0xFFC              000 0011 1111 1111
+-- BASE+0x1000             000 0000 0000 0000
+-- BASE+0x1004             000 0000 0000 0001
+-- BASE+0x1008             000 0000 0000 0010
+-- BASE+0x1FFC             000 0011 1111 1111
+-- BASE+0x2000             000 0000 0000 0000
+
 -- Jamieson Olsen <jamieson@fnal.gov>
 
 library ieee;
 use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
 
-library xpm;
-use xpm.vcomponents.all;
+library unisim;
+use unisim.vcomponents.all;
+
+-- library xpm;
+-- use xpm.vcomponents.all;
+-- I can't simulate this! xpm simulation models are written in SystemVerilog...
 
 entity dualram_axilite is
 	generic (
@@ -28,25 +39,25 @@ entity dualram_axilite is
 		C_S_AXI_ADDR_WIDTH	: integer	:= 32
 	);
 	port (
-		S_AXI_ACLK	: in std_logic;
+		S_AXI_ACLK	    : in std_logic;
 		S_AXI_ARESETN	: in std_logic;
 		S_AXI_AWADDR	: in std_logic_vector(C_S_AXI_ADDR_WIDTH-1 downto 0);
 		S_AXI_AWPROT	: in std_logic_vector(2 downto 0);
 		S_AXI_AWVALID	: in std_logic;
 		S_AXI_AWREADY	: out std_logic;
-		S_AXI_WDATA	: in std_logic_vector(C_S_AXI_DATA_WIDTH-1 downto 0);
-		S_AXI_WSTRB	: in std_logic_vector((C_S_AXI_DATA_WIDTH/8)-1 downto 0); -- 32 bits writes only
+		S_AXI_WDATA	    : in std_logic_vector(C_S_AXI_DATA_WIDTH-1 downto 0);
+		S_AXI_WSTRB	    : in std_logic_vector((C_S_AXI_DATA_WIDTH/8)-1 downto 0); -- 32 bits writes only
 		S_AXI_WVALID	: in std_logic;
 		S_AXI_WREADY	: out std_logic;
-		S_AXI_BRESP	: out std_logic_vector(1 downto 0);
+		S_AXI_BRESP	    : out std_logic_vector(1 downto 0);
 		S_AXI_BVALID	: out std_logic;
 		S_AXI_BREADY	: in std_logic;
 		S_AXI_ARADDR	: in std_logic_vector(C_S_AXI_ADDR_WIDTH-1 downto 0);
 		S_AXI_ARPROT	: in std_logic_vector(2 downto 0);
 		S_AXI_ARVALID	: in std_logic;
 		S_AXI_ARREADY	: out std_logic;
-		S_AXI_RDATA	: out std_logic_vector(C_S_AXI_DATA_WIDTH-1 downto 0);
-		S_AXI_RRESP	: out std_logic_vector(1 downto 0);
+		S_AXI_RDATA	    : out std_logic_vector(C_S_AXI_DATA_WIDTH-1 downto 0);
+		S_AXI_RRESP	    : out std_logic_vector(1 downto 0);
 		S_AXI_RVALID	: out std_logic;
 		S_AXI_RREADY	: in std_logic
 	);
@@ -66,17 +77,10 @@ architecture dualram_axilite_arch of dualram_axilite is
 	signal axi_rvalid	: std_logic;
 
 	signal rden, wren: std_logic;
-	signal ram0_wea, ram1_wea: std_logic_vector(0 downto 0);
+	signal ram0_wea, ram1_wea: std_logic_vector(3 downto 0);
 	signal aw_en: std_logic;
     signal ram0_douta, ram1_douta, ram_dout: std_logic_vector(31 downto 0);
-    signal addra: std_logic_vector(10 downto 0);
-
-    -- define the address range for each RAM relative to the BASE ADDRESS
-    -- each RAM is 2k x 32 but since AXI address is BYTE BASED the BLOCKRAM address (11) bits 
-    -- does not include the lower 2 bits of the AXI address
- 
-    constant RAM0_ADDR: std_logic_vector(31 downto 0) := "0000000000000000000-----------00";  -- 0x0000 - 0x1FFC
-    constant RAM1_ADDR: std_logic_vector(31 downto 0) := "0000000000000000001-----------00";  -- 0x2000 - 0x3FFC
+    signal addra: std_logic_vector(14 downto 0);
 
 begin
 
@@ -277,124 +281,280 @@ begin
 	  end if;
 	end process;
 
--- memory map two 2kx32 RAMs into the AXI 32 bit address space
--- each RAM has a 11 bit address bus which connects 
--- to the lower 12 bits of the AXI address space BUT shifted by 2 bits due to AXI bytewide access
+-- each BlockRAM has a 15 bit address bus (but only the lower 10 bits are used) and this address 
+-- specifies a 32 bit word location
 
 -- NOTE: we have TWO address pointers in AXI: a 32 bit write address pointer
 -- (axi_awaddr) and a 32 bit read address pointer (axi_araddr). The issue here is that
 -- our RAMs have only ONE address port (addra), so we need to switch between these two
 -- address pointers depending on whether the AXI master is trying to write to the memory
--- or read from it. addra is 11 bits
+-- or read from it.
 
-addra <= axi_awaddr(12 downto 2) when (wren='1') else axi_araddr(12 downto 2);
+-- AXI addresses are BYTES but the BlockRAM addresses are 32-bit WORDS (4 bytes, hence the address shifted by 2 bits)
 
--- now we need to map our 2k memory into the 32 bit address space, we'll do this manually.
--- the 11 blockram address lines will connect to the lower 12 bits of the 32 bit AXI address
--- space, which means that our RAMs will line up with 4k boundaries in the address space. BUT
--- we want our RAMs to ONLY appear ONCE in the address space, so we must decode the upper
--- bits of the address too, that's what the std_match is doing for us here. std_match ignores the
--- "----" don't care bits in the constants RAM0_ADDR and RAM1_ADDR
+addra(14 downto 10) <= "00000"; -- not used by BlockRAM but still needs to be connected
+addra(9 downto 0) <= axi_awaddr(11 downto 2) when (wren='1') else axi_araddr(11 downto 2);
 
-ram0_wea <= "1" when ( wren='1' and std_match(axi_awaddr, RAM0_ADDR) ) else "0";
-ram1_wea <= "1" when ( wren='1' and std_match(axi_awaddr, RAM1_ADDR) ) else "0";
+-- write enable signals
 
--- When the AXI master tries to read from this module choose which RAM to send back,
--- based on the address range, again we're using std_match to handle the don't care bits
--- in the address range definition for RAM0_ADDR and RAM1_ADDR
+ram0_wea <= "1111" when ( wren='1' and axi_awaddr(12)='0' ) else "0000"; -- base+0 through base+0xFFF
+ram1_wea <= "1111" when ( wren='1' and axi_awaddr(12)='1' ) else "0000"; -- base+0x1000 through base+0x1FFF
 
-ram_dout <= ram0_douta when std_match(axi_araddr, RAM0_ADDR) else 
-            ram1_douta when std_match(axi_araddr, RAM1_ADDR) else 
-            (others=>'0');
+-- When the AXI master tries to read from this module choose which RAM to send back based on the address range
 
--- xpm_memory_spram: Single Port RAM
+ram_dout <= ram0_douta when ( axi_araddr(12)='0' ) else 
+            ram1_douta;
 
-ram0_inst : xpm_memory_spram
-generic map (   
-    ADDR_WIDTH_A => 11, -- 2048 address spaces 0x000-0x7FF
-    AUTO_SLEEP_TIME => 0,
-    BYTE_WRITE_WIDTH_A => 32,
-    CASCADE_HEIGHT => 0,
-    ECC_BIT_RANGE => "7:0",
-    ECC_MODE => "no_ecc",
-    ECC_TYPE => "none",
-    -- IGNORE_INIT_SYNTH => 0,
-    MEMORY_INIT_FILE => "none",
-    MEMORY_INIT_PARAM => "0",
-    MEMORY_OPTIMIZATION => "true",
-    MEMORY_PRIMITIVE => "auto",
-    MEMORY_SIZE => 2048,
-    MESSAGE_CONTROL => 0,
-    RAM_DECOMP => "auto",
-    READ_DATA_WIDTH_A => 32,
-    READ_LATENCY_A => 2,
-    READ_RESET_VALUE_A => "0",
-    RST_MODE_A => "SYNC",
-    SIM_ASSERT_CHK => 0,
-    USE_MEM_INIT => 1,
-    USE_MEM_INIT_MMI => 0,
-    WAKEUP_TIME => "disable_sleep",
-    WRITE_DATA_WIDTH_A => 32,
-    WRITE_MODE_A => "read_first",
-    WRITE_PROTECT => 1)
+-- RAMB36E2: 36K-bit Configurable Synchronous Block RAM
+--           UltraScale
+-- Xilinx HDL Language Template, version 2023.2
+--
+-- each blockram is 1024 x 32, single port, no output register, 
+
+RAMB36E2_0_inst : RAMB36E2
+generic map (
+   -- CASCADE_ORDER_A, CASCADE_ORDER_B: "FIRST", "MIDDLE", "LAST", "NONE"
+   CASCADE_ORDER_A => "NONE",
+   CASCADE_ORDER_B => "NONE",
+   -- CLOCK_DOMAINS: "COMMON", "INDEPENDENT"
+   CLOCK_DOMAINS => "COMMON",
+   -- Collision check: "ALL", "GENERATE_X_ONLY", "NONE", "WARNING_ONLY"
+   SIM_COLLISION_CHECK => "NONE",
+   -- DOA_REG, DOB_REG: Optional output register (0, 1)
+   DOA_REG => 0,
+   DOB_REG => 0,
+   -- ENADDRENA/ENADDRENB: Address enable pin enable, "TRUE", "FALSE"
+   ENADDRENA => "FALSE",
+   ENADDRENB => "FALSE",
+   -- EN_ECC_PIPE: ECC pipeline register, "TRUE"/"FALSE"
+   EN_ECC_PIPE => "FALSE",
+   -- EN_ECC_READ: Enable ECC decoder, "TRUE"/"FALSE"
+   EN_ECC_READ => "FALSE",
+   -- EN_ECC_WRITE: Enable ECC encoder, "TRUE"/"FALSE"
+   EN_ECC_WRITE => "FALSE",
+   -- INIT_A, INIT_B: Initial values on output ports
+   INIT_A => X"000000000",
+   INIT_B => X"000000000",
+   -- Initialization File: RAM initialization file
+   INIT_FILE => "NONE",
+   -- Programmable Inversion Attributes: Specifies the use of the built-in programmable inversion
+   IS_CLKARDCLK_INVERTED => '0',
+   IS_CLKBWRCLK_INVERTED => '0',
+   IS_ENARDEN_INVERTED => '0',
+   IS_ENBWREN_INVERTED => '0',
+   IS_RSTRAMARSTRAM_INVERTED => '0',
+   IS_RSTRAMB_INVERTED => '0',
+   IS_RSTREGARSTREG_INVERTED => '0',
+   IS_RSTREGB_INVERTED => '0',
+   -- RDADDRCHANGE: Disable memory access when output value does not change ("TRUE", "FALSE")
+   RDADDRCHANGEA => "FALSE",
+   RDADDRCHANGEB => "FALSE",
+   -- READ_WIDTH_A/B, WRITE_WIDTH_A/B: Read/write width per port
+   READ_WIDTH_A => 36,                                                              -- 0-9
+   READ_WIDTH_B => 0,                                                               -- 0-9
+   WRITE_WIDTH_A => 36,                                                             -- 0-9
+   WRITE_WIDTH_B => 0,                                                              -- 0-9
+   -- RSTREG_PRIORITY_A, RSTREG_PRIORITY_B: Reset or enable priority ("RSTREG", "REGCE")
+   RSTREG_PRIORITY_A => "RSTREG",
+   RSTREG_PRIORITY_B => "RSTREG",
+   -- SRVAL_A, SRVAL_B: Set/reset value for output
+   SRVAL_A => X"000000000",
+   SRVAL_B => X"000000000",
+   -- Sleep Async: Sleep function asynchronous or synchronous ("TRUE", "FALSE")
+   SLEEP_ASYNC => "FALSE",
+   -- WriteMode: "WRITE_FIRST", "NO_CHANGE", "READ_FIRST"
+   WRITE_MODE_A => "NO_CHANGE",
+   WRITE_MODE_B => "NO_CHANGE"
+)
 port map (
-    clka => S_AXI_ACLK,
-    ena => '1',
-    addra => addra,
-    dina => S_AXI_WDATA,
-    douta => ram0_douta,
-    regcea => '1',
-    rsta => '0',
-    wea => ram0_wea,
-    sleep => '0',
-    sbiterra => open,
-    dbiterra => open,
-    injectdbiterra => '0',
-    injectsbiterra => '0'
+   -- no cascade, no parity, no error injection...
+   CASDOUTA => open,              -- 32-bit output: Port A cascade output data
+   CASDOUTB => open,              -- 32-bit output: Port B cascade output data
+   CASDOUTPA => open,             -- 4-bit output: Port A cascade output parity data
+   CASDOUTPB => open,             -- 4-bit output: Port B cascade output parity data
+   CASOUTDBITERR => open,         -- 1-bit output: DBITERR cascade output
+   CASOUTSBITERR => open,         -- 1-bit output: SBITERR cascade output
+   DBITERR => open,               -- 1-bit output: Double bit error status
+   ECCPARITY => open,             -- 8-bit output: Generated error correction parity
+   RDADDRECC => open,             -- 9-bit output: ECC Read Address
+   SBITERR => open,               -- 1-bit output: Single bit error status
+   CASDIMUXA => '0',             -- 1-bit input: Port A input data (0=DINA, 1=CASDINA)
+   CASDIMUXB => '0',             -- 1-bit input: Port B input data (0=DINB, 1=CASDINB)
+   CASDINA => X"00000000",                 -- 32-bit input: Port A cascade input data
+   CASDINB => X"00000000",                 -- 32-bit input: Port B cascade input data
+   CASDINPA => "0000",               -- 4-bit input: Port A cascade input parity data
+   CASDINPB => "0000",               -- 4-bit input: Port B cascade input parity data
+   CASDOMUXA => '0',             -- 1-bit input: Port A unregistered data (0=BRAM data, 1=CASDINA)
+   CASDOMUXB => '0',             -- 1-bit input: Port B unregistered data (0=BRAM data, 1=CASDINB)
+   CASDOMUXEN_A => '0',       -- 1-bit input: Port A unregistered output data enable
+   CASDOMUXEN_B => '0',       -- 1-bit input: Port B unregistered output data enable
+   CASINDBITERR => '0',       -- 1-bit input: DBITERR cascade input
+   CASINSBITERR => '0',       -- 1-bit input: SBITERR cascade input
+   CASOREGIMUXA => '0',       -- 1-bit input: Port A registered data (0=BRAM data, 1=CASDINA)
+   CASOREGIMUXB => '0',       -- 1-bit input: Port B registered data (0=BRAM data, 1=CASDINB)
+   CASOREGIMUXEN_A => '0', -- 1-bit input: Port A registered output data enable
+   CASOREGIMUXEN_B => '0', -- 1-bit input: Port B registered output data enable
+   ECCPIPECE => '0',             -- 1-bit input: ECC Pipeline Register Enable
+   INJECTDBITERR => '0',     -- 1-bit input: Inject a double-bit error
+   INJECTSBITERR => '0',
+
+   -- Port A Data outputs: Port A data
+   DOUTADOUT => ram0_douta,            -- 32-bit output: Port A Data/LSB data
+   DOUTPADOUTP => open,                -- 4-bit output: Port A parity/LSB parity
+   -- Port A Address/Control Signals inputs: Port A address and control signals
+   ADDRARDADDR => addra,               -- 15-bit input: A/Read port address
+   ADDRENA => '0',                     -- 1-bit input: Active-High A/Read port address enable
+   CLKARDCLK => S_AXI_ACLK,            -- 1-bit input: A/Read port clock
+   ENARDEN => '1',                     -- 1-bit input: Port A enable/Read enable
+   REGCEAREGCE => '1',                 -- 1-bit input: Port A register enable/Register enable
+   RSTRAMARSTRAM => '0',               -- 1-bit input: Port A set/reset
+   RSTREGARSTREG => '0',               -- 1-bit input: Port A register set/reset
+   SLEEP => '0',                       -- 1-bit input: Sleep Mode
+   WEA => ram0_wea,                    -- 4-bit input: Port A write enable
+   -- Port A Data inputs: Port A data
+   DINADIN => S_AXI_WDATA,             -- 32-bit input: Port A data/LSB data
+   DINPADINP => "0000",                -- 4-bit input: Port A parity/LSB parity
+
+   -- Port B unused...
+   -- Port B Data outputs: Port B data
+   DOUTBDOUT => open,             -- 32-bit output: Port B data/MSB data
+   DOUTPBDOUTP => open,                -- 4-bit output: Port B parity/MSB parity
+   -- Port B Address/Control Signals inputs: Port B address and control signals
+   ADDRBWRADDR => "000000000000000",   -- 15-bit input: B/Write port address
+   ADDRENB => '0',                 -- 1-bit input: Active-High B/Write port address enable
+   CLKBWRCLK => S_AXI_ACLK,        -- 1-bit input: B/Write port clock
+   ENBWREN => '0',                 -- 1-bit input: Port B enable/Write enable
+   REGCEB => '0',                  -- 1-bit input: Port B register enable
+   RSTRAMB => '0',                 -- 1-bit input: Port B set/reset
+   RSTREGB => '0',                 -- 1-bit input: Port B register set/reset
+   WEBWE => "00000000",            -- 8-bit input: Port B write enable/Write enable
+   -- Port B Data inputs: Port B data
+   DINBDIN => X"00000000",          -- 32-bit input: Port B data/MSB data
+   DINPBDINP => "0000"              -- 4-bit input: Port B parity/MSB parity
+
 );
 
-ram1_inst : xpm_memory_spram
-generic map (   
-    ADDR_WIDTH_A => 11, -- 2048 address spaces 0x000-0x7FF
-    AUTO_SLEEP_TIME => 0,
-    BYTE_WRITE_WIDTH_A => 32,
-    CASCADE_HEIGHT => 0,
-    ECC_BIT_RANGE => "7:0",
-    ECC_MODE => "no_ecc",
-    ECC_TYPE => "none",
-    -- IGNORE_INIT_SYNTH => 0,
-    MEMORY_INIT_FILE => "none",
-    MEMORY_INIT_PARAM => "0",
-    MEMORY_OPTIMIZATION => "true",
-    MEMORY_PRIMITIVE => "auto",
-    MEMORY_SIZE => 2048,
-    MESSAGE_CONTROL => 0,
-    RAM_DECOMP => "auto",
-    READ_DATA_WIDTH_A => 32,
-    READ_LATENCY_A => 2,
-    READ_RESET_VALUE_A => "0",
-    RST_MODE_A => "SYNC",
-    SIM_ASSERT_CHK => 0,
-    USE_MEM_INIT => 1,
-    USE_MEM_INIT_MMI => 0,
-    WAKEUP_TIME => "disable_sleep",
-    WRITE_DATA_WIDTH_A => 32,
-    WRITE_MODE_A => "read_first",
-    WRITE_PROTECT => 1)
+RAMB36E2_1_inst : RAMB36E2
+generic map (
+   -- CASCADE_ORDER_A, CASCADE_ORDER_B: "FIRST", "MIDDLE", "LAST", "NONE"
+   CASCADE_ORDER_A => "NONE",
+   CASCADE_ORDER_B => "NONE",
+   -- CLOCK_DOMAINS: "COMMON", "INDEPENDENT"
+   CLOCK_DOMAINS => "COMMON",
+   -- Collision check: "ALL", "GENERATE_X_ONLY", "NONE", "WARNING_ONLY"
+   SIM_COLLISION_CHECK => "NONE",
+   -- DOA_REG, DOB_REG: Optional output register (0, 1)
+   DOA_REG => 0,
+   DOB_REG => 0,
+   -- ENADDRENA/ENADDRENB: Address enable pin enable, "TRUE", "FALSE"
+   ENADDRENA => "FALSE",
+   ENADDRENB => "FALSE",
+   -- EN_ECC_PIPE: ECC pipeline register, "TRUE"/"FALSE"
+   EN_ECC_PIPE => "FALSE",
+   -- EN_ECC_READ: Enable ECC decoder, "TRUE"/"FALSE"
+   EN_ECC_READ => "FALSE",
+   -- EN_ECC_WRITE: Enable ECC encoder, "TRUE"/"FALSE"
+   EN_ECC_WRITE => "FALSE",
+   -- INIT_A, INIT_B: Initial values on output ports
+   INIT_A => X"000000000",
+   INIT_B => X"000000000",
+   -- Initialization File: RAM initialization file
+   INIT_FILE => "NONE",
+   -- Programmable Inversion Attributes: Specifies the use of the built-in programmable inversion
+   IS_CLKARDCLK_INVERTED => '0',
+   IS_CLKBWRCLK_INVERTED => '0',
+   IS_ENARDEN_INVERTED => '0',
+   IS_ENBWREN_INVERTED => '0',
+   IS_RSTRAMARSTRAM_INVERTED => '0',
+   IS_RSTRAMB_INVERTED => '0',
+   IS_RSTREGARSTREG_INVERTED => '0',
+   IS_RSTREGB_INVERTED => '0',
+   -- RDADDRCHANGE: Disable memory access when output value does not change ("TRUE", "FALSE")
+   RDADDRCHANGEA => "FALSE",
+   RDADDRCHANGEB => "FALSE",
+   -- READ_WIDTH_A/B, WRITE_WIDTH_A/B: Read/write width per port
+   READ_WIDTH_A => 36,                                                              -- 0-9
+   READ_WIDTH_B => 0,                                                               -- 0-9
+   WRITE_WIDTH_A => 36,                                                             -- 0-9
+   WRITE_WIDTH_B => 0,                                                              -- 0-9
+   -- RSTREG_PRIORITY_A, RSTREG_PRIORITY_B: Reset or enable priority ("RSTREG", "REGCE")
+   RSTREG_PRIORITY_A => "RSTREG",
+   RSTREG_PRIORITY_B => "RSTREG",
+   -- SRVAL_A, SRVAL_B: Set/reset value for output
+   SRVAL_A => X"000000000",
+   SRVAL_B => X"000000000",
+   -- Sleep Async: Sleep function asynchronous or synchronous ("TRUE", "FALSE")
+   SLEEP_ASYNC => "FALSE",
+   -- WriteMode: "WRITE_FIRST", "NO_CHANGE", "READ_FIRST"
+   WRITE_MODE_A => "NO_CHANGE",
+   WRITE_MODE_B => "NO_CHANGE"
+)
 port map (
-    clka => S_AXI_ACLK,
-    ena => '1',
-    addra => addra,
-    dina => S_AXI_WDATA,
-    douta => ram1_douta,
-    regcea => '1',
-    rsta => '0',
-    wea => ram1_wea,
-    sleep => '0',
-    sbiterra => open,
-    dbiterra => open,
-    injectdbiterra => '0',
-    injectsbiterra => '0'
+   -- no cascade, no parity, no error injection...
+   CASDOUTA => open,          -- 32-bit output: Port A cascade output data
+   CASDOUTB => open,          -- 32-bit output: Port B cascade output data
+   CASDOUTPA => open,         -- 4-bit output: Port A cascade output parity data
+   CASDOUTPB => open,         -- 4-bit output: Port B cascade output parity data
+   CASOUTDBITERR => open,     -- 1-bit output: DBITERR cascade output
+   CASOUTSBITERR => open,     -- 1-bit output: SBITERR cascade output
+   DBITERR => open,           -- 1-bit output: Double bit error status
+   ECCPARITY => open,         -- 8-bit output: Generated error correction parity
+   RDADDRECC => open,         -- 9-bit output: ECC Read Address
+   SBITERR => open,           -- 1-bit output: Single bit error status
+   CASDIMUXA => '0',          -- 1-bit input: Port A input data (0=DINA, 1=CASDINA)
+   CASDIMUXB => '0',          -- 1-bit input: Port B input data (0=DINB, 1=CASDINB)
+   CASDINA => X"00000000",    -- 32-bit input: Port A cascade input data
+   CASDINB => X"00000000",    -- 32-bit input: Port B cascade input data
+   CASDINPA => "0000",        -- 4-bit input: Port A cascade input parity data
+   CASDINPB => "0000",        -- 4-bit input: Port B cascade input parity data
+   CASDOMUXA => '0',          -- 1-bit input: Port A unregistered data (0=BRAM data, 1=CASDINA)
+   CASDOMUXB => '0',          -- 1-bit input: Port B unregistered data (0=BRAM data, 1=CASDINB)
+   CASDOMUXEN_A => '0',       -- 1-bit input: Port A unregistered output data enable
+   CASDOMUXEN_B => '0',       -- 1-bit input: Port B unregistered output data enable
+   CASINDBITERR => '0',       -- 1-bit input: DBITERR cascade input
+   CASINSBITERR => '0',       -- 1-bit input: SBITERR cascade input
+   CASOREGIMUXA => '0',       -- 1-bit input: Port A registered data (0=BRAM data, 1=CASDINA)
+   CASOREGIMUXB => '0',       -- 1-bit input: Port B registered data (0=BRAM data, 1=CASDINB)
+   CASOREGIMUXEN_A => '0',    -- 1-bit input: Port A registered output data enable
+   CASOREGIMUXEN_B => '0',    -- 1-bit input: Port B registered output data enable
+   ECCPIPECE => '0',          -- 1-bit input: ECC Pipeline Register Enable
+   INJECTDBITERR => '0',      -- 1-bit input: Inject a double-bit error
+   INJECTSBITERR => '0',
+
+   -- Port A Data outputs: Port A data
+   DOUTADOUT => ram1_douta,   -- 32-bit output: Port A Data/LSB data
+   DOUTPADOUTP => open,       -- 4-bit output: Port A parity/LSB parity
+   -- Port A Address/Control Signals inputs: Port A address and control signals
+   ADDRARDADDR => addra,               -- 15-bit input: A/Read port address
+   ADDRENA => '0',                     -- 1-bit input: Active-High A/Read port address enable
+   CLKARDCLK => S_AXI_ACLK,            -- 1-bit input: A/Read port clock
+   ENARDEN => '1',                     -- 1-bit input: Port A enable/Read enable
+   REGCEAREGCE => '1',                 -- 1-bit input: Port A register enable/Register enable
+   RSTRAMARSTRAM => '0',               -- 1-bit input: Port A set/reset
+   RSTREGARSTREG => '0',               -- 1-bit input: Port A register set/reset
+   SLEEP => '0',                       -- 1-bit input: Sleep Mode
+   WEA => ram1_wea,                    -- 4-bit input: Port A write enable
+   -- Port A Data inputs: Port A data
+   DINADIN => S_AXI_WDATA,             -- 32-bit input: Port A data/LSB data
+   DINPADINP => "0000",                -- 4-bit input: Port A parity/LSB parity
+
+   -- Port B unused...
+   -- Port B Data outputs: Port B data
+   DOUTBDOUT => open,             -- 32-bit output: Port B data/MSB data
+   DOUTPBDOUTP => open,                -- 4-bit output: Port B parity/MSB parity
+   -- Port B Address/Control Signals inputs: Port B address and control signals
+   ADDRBWRADDR => "000000000000000",   -- 15-bit input: B/Write port address
+   ADDRENB => '0',                 -- 1-bit input: Active-High B/Write port address enable
+   CLKBWRCLK => S_AXI_ACLK,        -- 1-bit input: B/Write port clock
+   ENBWREN => '0',                 -- 1-bit input: Port B enable/Write enable
+   REGCEB => '0',                  -- 1-bit input: Port B register enable
+   RSTRAMB => '0',                 -- 1-bit input: Port B set/reset
+   RSTREGB => '0',                 -- 1-bit input: Port B register set/reset
+   WEBWE => "00000000",            -- 8-bit input: Port B write enable/Write enable
+   -- Port B Data inputs: Port B data
+   DINBDIN => X"00000000",          -- 32-bit input: Port B data/MSB data
+   DINPBDINP => "0000"              -- 4-bit input: Port B parity/MSB parity
+
 );
 
 end dualram_axilite_arch;

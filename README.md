@@ -1,10 +1,10 @@
-a simple AXI-Lite peripheral which consists of two 2k x 32 BlockRAMs memory mapped into the AXI address space
+a simple AXI-Lite peripheral which consists of two 1k x 32 BlockRAMs memory mapped into the AXI address space
 
-	RAM0 = BASE+0x0000 through BASE+0x1FFC
-	RAM1 = BASE+0x2000 through BASE+0x3FFC
+	RAM0 = BASE+0x0000 through BASE+0xFFC
+	RAM1 = BASE+0x1000 through BASE+0x1FFC
 
-So when adding this module to a Zynq/Kria design, choose the base address to be whatever you want, 
-and the range should be 16k (2 RAMs x 2k words/RAM x 4 bytes/word)
+So when adding this module to a Zynq/Kria design, the base address must align with an 8k byte boundary
+and the total memory size should be 8k (2 RAMs x 1k words/RAM x 4 bytes/word)
 
 This module does not support byte level access. All reads and writes should be 32 bits.
 
