@@ -20,6 +20,9 @@
 -- BASE+0x1FFC             000 0011 1111 1111
 -- BASE+0x2000             000 0000 0000 0000
 
+-- read latency has increased by 1 clock due to the sync nature of the blockRAMs, register the
+-- axi_arready signal to delay the blockram output data latching and RVALID signal by one clock...
+
 -- Jamieson Olsen <jamieson@fnal.gov>
 
 library ieee;
@@ -76,6 +79,8 @@ architecture dualram_axilite_arch of dualram_axilite is
 	signal axi_rresp	: std_logic_vector(1 downto 0);
 	signal axi_rvalid	: std_logic;
 
+	signal axi_arready_reg	: std_logic; -- need to add 1 wait state for blockram
+
 	signal rden, wren: std_logic;
 	signal ram0_wea, ram1_wea: std_logic_vector(3 downto 0);
 	signal aw_en: std_logic;
@@ -90,7 +95,8 @@ begin
 	S_AXI_WREADY	<= axi_wready;
 	S_AXI_BRESP	    <= axi_bresp;
 	S_AXI_BVALID	<= axi_bvalid;
-	S_AXI_ARREADY	<= axi_arready;
+	--S_AXI_ARREADY	<= axi_arready;
+    S_AXI_ARREADY	<= axi_arready_reg;
 	S_AXI_RDATA	    <= axi_rdata;
 	S_AXI_RRESP	    <= axi_rresp;
 	S_AXI_RVALID	<= axi_rvalid;
@@ -215,9 +221,11 @@ begin
 	  if rising_edge(S_AXI_ACLK) then 
 	    if S_AXI_ARESETN = '0' then
 	      axi_arready <= '0';
+          axi_arready_reg <= '0';
 	      axi_araddr  <= (others => '1');
 	    else
-	      if (axi_arready = '0' and S_AXI_ARVALID = '1') then
+	      -- if (axi_arready = '0' and S_AXI_ARVALID = '1') then
+          if (axi_arready = '0' and axi_arready_reg = '0' and S_AXI_ARVALID = '1') then
 	        -- indicates that the slave has acceped the valid read address
 	        axi_arready <= '1';
 	        -- Read Address latching 
@@ -225,8 +233,9 @@ begin
 	      else
 	        axi_arready <= '0';
 	      end if;
-	    end if;
-	  end if;                   
+          axi_arready_reg <= axi_arready;
+        end if;
+      end if;                   
 	end process; 
 
 	-- Implement axi_arvalid generation
@@ -245,7 +254,8 @@ begin
 	      axi_rvalid <= '0';
 	      axi_rresp  <= "00";
 	    else
-	      if (axi_arready = '1' and S_AXI_ARVALID = '1' and axi_rvalid = '0') then
+	      --if (axi_arready = '1' and S_AXI_ARVALID = '1' and axi_rvalid = '0') then
+          if (axi_arready_reg = '1' and S_AXI_ARVALID = '1' and axi_rvalid = '0') then
 	        -- Valid read data is available at the read data bus
 	        axi_rvalid <= '1';
 	        axi_rresp  <= "00"; -- 'OKAY' response
@@ -261,7 +271,8 @@ begin
 	-- Slave register read enable is asserted when valid address is available
 	-- and the slave is ready to accept the read address.
 
-	rden <= axi_arready and S_AXI_ARVALID and (not axi_rvalid) ;
+	--rden <= axi_arready and S_AXI_ARVALID and (not axi_rvalid) ;
+    rden <= axi_arready_reg and S_AXI_ARVALID and (not axi_rvalid) ;
 
 	-- Output register or memory read data
     -- When there is a valid read address (S_AXI_ARVALID) with 

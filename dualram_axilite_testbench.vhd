@@ -69,28 +69,79 @@ signal RVALID: std_logic;
 
 begin
 
-reset_n <= '0', '1' after 96ns;
+reset_n <= '0', '1' after 80ns;
 
-clock <= not clock after 5ns;
+clock <= not clock after 5ns;  -- 100 MHz
 
 aximasterproc: process
 begin
-    wait for 100ns;
-    reset_n <= '1'; -- out of reset
-    wait for 100ns;
+    wait for 200ns;
 
-    -- address write channel
+    -- write to RAM0
 
-    wait until falling_edge(clock);
-    AWADDR <= X"88000000";
-    AWVALID <= '1';
-
-    wait until rising_edge(AWREADY);
     wait until rising_edge(clock);
+    AWADDR <= X"80000000";  -- base + 0 
+    AWVALID <= '1';
+    WDATA <= X"DEADBEEF";
+    WVALID <= '1';
+    BREADY <= '1';
+    WSTRB <= "1111";
+    wait until (rising_edge(clock) and AWREADY='1' and WREADY='1');
     AWADDR <= X"00000000";
     AWVALID <= '0';
-    
-    -- not done yet...
+    WDATA <= X"00000000";
+    AWVALID <= '0';
+    WSTRB <= "0000";
+    wait until (rising_edge(clock) and BVALID='1');
+    BREADY <= '0';
+
+    wait for 50ns;
+
+    -- write to RAM1
+
+    wait until rising_edge(clock);
+    AWADDR <= X"80001008";
+    AWVALID <= '1';
+    WDATA <= X"CAFEBABE";
+    WVALID <= '1';
+    BREADY <= '1';
+    WSTRB <= "1111";
+    wait until (rising_edge(clock) and AWREADY='1' and WREADY='1');
+    AWADDR <= X"00000000";
+    AWVALID <= '0';
+    WDATA <= X"00000000";
+    AWVALID <= '0';
+    WSTRB <= "0000";
+    wait until (rising_edge(clock) and BVALID='1');
+    BREADY <= '0';
+
+    wait for 50ns;
+
+    -- read from RAM0
+
+    wait until rising_edge(clock);
+    ARADDR <= X"80000000";  -- base + 0 
+    ARVALID <= '1';
+    RREADY <= '1';
+    wait until (rising_edge(clock) and ARREADY='1');
+    ARADDR <= X"00000000";
+    ARVALID <= '0';
+    wait until (rising_edge(clock) and RVALID='1');
+    RREADY <= '0';
+
+    wait for 50ns;
+
+    -- read from RAM1
+
+    wait until rising_edge(clock);
+    ARADDR <= X"80001008";  -- base + 0 
+    ARVALID <= '1';
+    RREADY <= '1';
+    wait until (rising_edge(clock) and ARREADY='1');
+    ARADDR <= X"00000000";
+    ARVALID <= '0';
+    wait until (rising_edge(clock) and RVALID='1');
+    RREADY <= '0';
 
     wait;
 end process aximasterproc;

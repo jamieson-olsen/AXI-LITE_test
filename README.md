@@ -12,6 +12,11 @@ source file is dualram_axilite.vhd
 
 this is based on the Vivado IP example design files, myip_v1_0*.vhd which are included here for reference.
 
+testbench now works, handles a few simple AXI-LITE writes and reads it back, seems to work.
+
+needed to add a wait state on the read handshaking logic to compensate for the additional 1 clock latency 
+increase on blockram reads; this delays the ARREADY signal back to the master by 1 clock.
+
 JTO
 
 
