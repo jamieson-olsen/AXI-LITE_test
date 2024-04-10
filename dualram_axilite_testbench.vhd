@@ -77,10 +77,8 @@ aximasterproc: process
 begin
     wait for 200ns;
 
-    -- write to RAM0
-
     wait until rising_edge(clock);
-    AWADDR <= X"80000000";  -- base + 0 
+    AWADDR <= X"80000000"; -- write to RAM0
     AWVALID <= '1';
     WDATA <= X"DEADBEEF";
     WVALID <= '1';
@@ -97,10 +95,44 @@ begin
 
     wait for 50ns;
 
-    -- write to RAM1
+    wait until rising_edge(clock);
+    AWADDR <= X"80000004"; -- write to RAM0
+    AWVALID <= '1';
+    WDATA <= X"AA551234";
+    WVALID <= '1';
+    BREADY <= '1';
+    WSTRB <= "1111";
+    wait until (rising_edge(clock) and AWREADY='1' and WREADY='1');
+    AWADDR <= X"00000000";
+    AWVALID <= '0';
+    WDATA <= X"00000000";
+    AWVALID <= '0';
+    WSTRB <= "0000";
+    wait until (rising_edge(clock) and BVALID='1');
+    BREADY <= '0';
+
+    wait for 50ns;
 
     wait until rising_edge(clock);
-    AWADDR <= X"80001008";
+    AWADDR <= X"80000008"; -- write to RAM0
+    AWVALID <= '1';
+    WDATA <= X"12345678";
+    WVALID <= '1';
+    BREADY <= '1';
+    WSTRB <= "1111";
+    wait until (rising_edge(clock) and AWREADY='1' and WREADY='1');
+    AWADDR <= X"00000000";
+    AWVALID <= '0';
+    WDATA <= X"00000000";
+    AWVALID <= '0';
+    WSTRB <= "0000";
+    wait until (rising_edge(clock) and BVALID='1');
+    BREADY <= '0';
+
+    wait for 50ns;
+
+    wait until rising_edge(clock);
+    AWADDR <= X"80001000"; -- write to RAM1
     AWVALID <= '1';
     WDATA <= X"CAFEBABE";
     WVALID <= '1';
@@ -117,10 +149,26 @@ begin
 
     wait for 50ns;
 
-    -- read from RAM0
+    wait until rising_edge(clock);
+    AWADDR <= X"80001004"; -- write to RAM1
+    AWVALID <= '1';
+    WDATA <= X"00C0FFEE";
+    WVALID <= '1';
+    BREADY <= '1';
+    WSTRB <= "1111";
+    wait until (rising_edge(clock) and AWREADY='1' and WREADY='1');
+    AWADDR <= X"00000000";
+    AWVALID <= '0';
+    WDATA <= X"00000000";
+    AWVALID <= '0';
+    WSTRB <= "0000";
+    wait until (rising_edge(clock) and BVALID='1');
+    BREADY <= '0';
+
+    wait for 50ns;
 
     wait until rising_edge(clock);
-    ARADDR <= X"80000000";  -- base + 0 
+    ARADDR <= X"80000000"; -- read from RAM0
     ARVALID <= '1';
     RREADY <= '1';
     wait until (rising_edge(clock) and ARREADY='1');
@@ -131,10 +179,20 @@ begin
 
     wait for 50ns;
 
-    -- read from RAM1
+    wait until rising_edge(clock);
+    ARADDR <= X"80001000"; -- read from RAM1
+    ARVALID <= '1';
+    RREADY <= '1';
+    wait until (rising_edge(clock) and ARREADY='1');
+    ARADDR <= X"00000000";
+    ARVALID <= '0';
+    wait until (rising_edge(clock) and RVALID='1');
+    RREADY <= '0';	
+	
+    wait for 50ns;
 
     wait until rising_edge(clock);
-    ARADDR <= X"80001008";  -- base + 0 
+    ARADDR <= X"80000004";  -- read from RAM0
     ARVALID <= '1';
     RREADY <= '1';
     wait until (rising_edge(clock) and ARREADY='1');
@@ -143,6 +201,30 @@ begin
     wait until (rising_edge(clock) and RVALID='1');
     RREADY <= '0';
 
+    wait for 50ns;
+
+    wait until rising_edge(clock);
+    ARADDR <= X"80000008";  -- read from RAM0
+    ARVALID <= '1';
+    RREADY <= '1';
+    wait until (rising_edge(clock) and ARREADY='1');
+    ARADDR <= X"00000000";
+    ARVALID <= '0';
+    wait until (rising_edge(clock) and RVALID='1');
+    RREADY <= '0';
+
+    wait for 50ns;
+
+    wait until rising_edge(clock);
+    ARADDR <= X"80001004"; -- read from RAM1 
+    ARVALID <= '1';
+    RREADY <= '1';
+    wait until (rising_edge(clock) and ARREADY='1');
+    ARADDR <= X"00000000";
+    ARVALID <= '0';
+    wait until (rising_edge(clock) and RVALID='1');
+    RREADY <= '0';
+	
     wait;
 end process aximasterproc;
 

@@ -32,10 +32,6 @@ use ieee.numeric_std.all;
 library unisim;
 use unisim.vcomponents.all;
 
--- library xpm;
--- use xpm.vcomponents.all;
--- I can't simulate this! xpm simulation models are written in SystemVerilog...
-
 entity dualram_axilite is
 	generic (
 		C_S_AXI_DATA_WIDTH	: integer	:= 32;
@@ -80,9 +76,11 @@ architecture dualram_axilite_arch of dualram_axilite is
 	signal axi_rvalid	: std_logic;
 
 	signal axi_arready_reg	: std_logic; -- need to add 1 wait state for blockram
+    signal axi_arvalid: std_logic;       
 
 	signal rden, wren: std_logic;
 	signal ram0_wea, ram1_wea: std_logic_vector(3 downto 0);
+	signal ram0_ena, ram1_ena: std_logic;
 	signal aw_en: std_logic;
     signal ram0_douta, ram1_douta, ram_dout: std_logic_vector(31 downto 0);
     signal addra: std_logic_vector(14 downto 0);
@@ -95,7 +93,7 @@ begin
 	S_AXI_WREADY	<= axi_wready;
 	S_AXI_BRESP	    <= axi_bresp;
 	S_AXI_BVALID	<= axi_bvalid;
-	--S_AXI_ARREADY	<= axi_arready;
+	-- S_AXI_ARREADY	<= axi_arready;
     S_AXI_ARREADY	<= axi_arready_reg;
 	S_AXI_RDATA	    <= axi_rdata;
 	S_AXI_RRESP	    <= axi_rresp;
@@ -223,17 +221,19 @@ begin
 	      axi_arready <= '0';
           axi_arready_reg <= '0';
 	      axi_araddr  <= (others => '1');
+	      axi_arvalid <= '0';
 	    else
-	      -- if (axi_arready = '0' and S_AXI_ARVALID = '1') then
-          if (axi_arready = '0' and axi_arready_reg = '0' and S_AXI_ARVALID = '1') then
+		  axi_arvalid <= S_AXI_ARVALID;
+          if (axi_arready='0' and axi_arready_reg='0' and S_AXI_ARVALID='1') then
 	        -- indicates that the slave has acceped the valid read address
 	        axi_arready <= '1';
+			axi_arready_reg <= axi_arready;
 	        -- Read Address latching 
 	        axi_araddr  <= S_AXI_ARADDR;           
 	      else
 	        axi_arready <= '0';
+            axi_arready_reg <= axi_arready;
 	      end if;
-          axi_arready_reg <= axi_arready;
         end if;
       end if;                   
 	end process; 
@@ -254,7 +254,7 @@ begin
 	      axi_rvalid <= '0';
 	      axi_rresp  <= "00";
 	    else
-	      --if (axi_arready = '1' and S_AXI_ARVALID = '1' and axi_rvalid = '0') then
+	      -- if (axi_arready = '1' and S_AXI_ARVALID = '1' and axi_rvalid = '0') then
           if (axi_arready_reg = '1' and S_AXI_ARVALID = '1' and axi_rvalid = '0') then
 	        -- Valid read data is available at the read data bus
 	        axi_rvalid <= '1';
@@ -271,8 +271,7 @@ begin
 	-- Slave register read enable is asserted when valid address is available
 	-- and the slave is ready to accept the read address.
 
-	--rden <= axi_arready and S_AXI_ARVALID and (not axi_rvalid) ;
-    rden <= axi_arready_reg and S_AXI_ARVALID and (not axi_rvalid) ;
+	rden <= axi_arready_reg and S_AXI_ARVALID and (not axi_rvalid) ;
 
 	-- Output register or memory read data
     -- When there is a valid read address (S_AXI_ARVALID) with 
@@ -292,25 +291,37 @@ begin
 	  end if;
 	end process;
 
--- each BlockRAM has a 15 bit address bus (but only the lower 10 bits are used) and this address 
--- specifies a 32 bit word location
-
+-- OK fun with address spaces...	
+	
 -- NOTE: we have TWO address pointers in AXI: a 32 bit write address pointer
 -- (axi_awaddr) and a 32 bit read address pointer (axi_araddr). The issue here is that
 -- our RAMs have only ONE address port (addra), so we need to switch between these two
 -- address pointers depending on whether the AXI master is trying to write to the memory
 -- or read from it.
 
--- AXI addresses are BYTES but the BlockRAM addresses are 32-bit WORDS (4 bytes, hence the address shifted by 2 bits)
+-- AXI addresses (31..0) refer to BYTES! (shift left 2 bits to get 32 bit words)
+-- BlockRAM addresses (14..0) refer to BITS! (shift left 5 bits to get 32 bit words)
 
-addra(14 downto 10) <= "00000"; -- not used by BlockRAM but still needs to be connected
-addra(9 downto 0) <= axi_awaddr(11 downto 2) when (wren='1') else axi_araddr(11 downto 2);
+addra <= (axi_awaddr(11 downto 2) & "00000") when (wren='1') else 
+	     (axi_araddr(11 downto 2) & "00000");
 
--- write enable signals
+-- BlockRAM general enables
 
-ram0_wea <= "1111" when ( wren='1' and axi_awaddr(12)='0' ) else "0000"; -- base+0 through base+0xFFF
-ram1_wea <= "1111" when ( wren='1' and axi_awaddr(12)='1' ) else "0000"; -- base+0x1000 through base+0x1FFF
+ram0_ena <= '1' when ( axi_arvalid='1' and axi_araddr(12)='0' ) else 
+		    '1' when ( wren='1'        and axi_awaddr(12)='0' ) else 
+            '0';
+	
+ram1_ena <= '1' when ( axi_arvalid='1' and axi_araddr(12)='1' ) else
+		    '1' when ( wren='1'        and axi_awaddr(12)='1' ) else 
+            '0';
 
+-- BlockRAM write enables
+
+ram0_wea <= "1111" when ( wren='1' and axi_awaddr(12)='0' ) else "0000";
+
+ram1_wea <= "1111" when ( wren='1' and axi_awaddr(12)='1' ) else "0000";
+
+	
 -- When the AXI master tries to read from this module choose which RAM to send back based on the address range
 
 ram_dout <= ram0_douta when ( axi_araddr(12)='0' ) else 
@@ -330,7 +341,7 @@ generic map (
    -- CLOCK_DOMAINS: "COMMON", "INDEPENDENT"
    CLOCK_DOMAINS => "COMMON",
    -- Collision check: "ALL", "GENERATE_X_ONLY", "NONE", "WARNING_ONLY"
-   SIM_COLLISION_CHECK => "NONE",
+   SIM_COLLISION_CHECK => "ALL",
    -- DOA_REG, DOB_REG: Optional output register (0, 1)
    DOA_REG => 0,
    DOB_REG => 0,
@@ -361,10 +372,10 @@ generic map (
    RDADDRCHANGEA => "FALSE",
    RDADDRCHANGEB => "FALSE",
    -- READ_WIDTH_A/B, WRITE_WIDTH_A/B: Read/write width per port
-   READ_WIDTH_A => 36,                                                              -- 0-9
-   READ_WIDTH_B => 0,                                                               -- 0-9
-   WRITE_WIDTH_A => 36,                                                             -- 0-9
-   WRITE_WIDTH_B => 0,                                                              -- 0-9
+   READ_WIDTH_A => 36,                                                       -- 0-9
+   WRITE_WIDTH_A => 36,                                                      -- 0-9
+   READ_WIDTH_B => 0,                                                        -- 0-9
+   WRITE_WIDTH_B => 0,                                                       -- 0-9
    -- RSTREG_PRIORITY_A, RSTREG_PRIORITY_B: Reset or enable priority ("RSTREG", "REGCE")
    RSTREG_PRIORITY_A => "RSTREG",
    RSTREG_PRIORITY_B => "RSTREG",
@@ -391,8 +402,8 @@ port map (
    SBITERR => open,               -- 1-bit output: Single bit error status
    CASDIMUXA => '0',             -- 1-bit input: Port A input data (0=DINA, 1=CASDINA)
    CASDIMUXB => '0',             -- 1-bit input: Port B input data (0=DINB, 1=CASDINB)
-   CASDINA => X"00000000",                 -- 32-bit input: Port A cascade input data
-   CASDINB => X"00000000",                 -- 32-bit input: Port B cascade input data
+   CASDINA => X"00001234",                 -- 32-bit input: Port A cascade input data
+   CASDINB => X"00005678",                 -- 32-bit input: Port B cascade input data
    CASDINPA => "0000",               -- 4-bit input: Port A cascade input parity data
    CASDINPB => "0000",               -- 4-bit input: Port B cascade input parity data
    CASDOMUXA => '0',             -- 1-bit input: Port A unregistered data (0=BRAM data, 1=CASDINA)
@@ -409,39 +420,34 @@ port map (
    INJECTDBITERR => '0',     -- 1-bit input: Inject a double-bit error
    INJECTSBITERR => '0',
 
-   -- Port A Data outputs: Port A data
+   -- Port A is used for AXI R/W
    DOUTADOUT => ram0_douta,            -- 32-bit output: Port A Data/LSB data
    DOUTPADOUTP => open,                -- 4-bit output: Port A parity/LSB parity
-   -- Port A Address/Control Signals inputs: Port A address and control signals
    ADDRARDADDR => addra,               -- 15-bit input: A/Read port address
    ADDRENA => '0',                     -- 1-bit input: Active-High A/Read port address enable
    CLKARDCLK => S_AXI_ACLK,            -- 1-bit input: A/Read port clock
-   ENARDEN => '1',                     -- 1-bit input: Port A enable/Read enable
+   ENARDEN => ram0_ena,                -- 1-bit input: Port A enable/Read enable
    REGCEAREGCE => '1',                 -- 1-bit input: Port A register enable/Register enable
    RSTRAMARSTRAM => '0',               -- 1-bit input: Port A set/reset
    RSTREGARSTREG => '0',               -- 1-bit input: Port A register set/reset
    SLEEP => '0',                       -- 1-bit input: Sleep Mode
    WEA => ram0_wea,                    -- 4-bit input: Port A write enable
-   -- Port A Data inputs: Port A data
    DINADIN => S_AXI_WDATA,             -- 32-bit input: Port A data/LSB data
    DINPADINP => "0000",                -- 4-bit input: Port A parity/LSB parity
 
-   -- Port B unused...
-   -- Port B Data outputs: Port B data
-   DOUTBDOUT => open,             -- 32-bit output: Port B data/MSB data
-   DOUTPBDOUTP => open,                -- 4-bit output: Port B parity/MSB parity
-   -- Port B Address/Control Signals inputs: Port B address and control signals
-   ADDRBWRADDR => "000000000000000",   -- 15-bit input: B/Write port address
+   -- Port B is RESERVED
+   DOUTBDOUT => open,              -- 32-bit output: Port B data/MSB data
+   DOUTPBDOUTP => open,            -- 4-bit output: Port B parity/MSB parity
+   ADDRBWRADDR => "000000000000000", -- 15-bit input: B/Write port address
    ADDRENB => '0',                 -- 1-bit input: Active-High B/Write port address enable
    CLKBWRCLK => S_AXI_ACLK,        -- 1-bit input: B/Write port clock
    ENBWREN => '0',                 -- 1-bit input: Port B enable/Write enable
    REGCEB => '0',                  -- 1-bit input: Port B register enable
    RSTRAMB => '0',                 -- 1-bit input: Port B set/reset
    RSTREGB => '0',                 -- 1-bit input: Port B register set/reset
-   WEBWE => "00000000",            -- 8-bit input: Port B write enable/Write enable
-   -- Port B Data inputs: Port B data
-   DINBDIN => X"00000000",          -- 32-bit input: Port B data/MSB data
-   DINPBDINP => "0000"              -- 4-bit input: Port B parity/MSB parity
+   WEBWE => "11111111",            -- 8-bit input: Port B write enable/Write enable
+   DINBDIN => X"00000000",         -- 32-bit input: Port B data/MSB data
+   DINPBDINP => "0000"             -- 4-bit input: Port B parity/MSB parity
 
 );
 
@@ -453,7 +459,7 @@ generic map (
    -- CLOCK_DOMAINS: "COMMON", "INDEPENDENT"
    CLOCK_DOMAINS => "COMMON",
    -- Collision check: "ALL", "GENERATE_X_ONLY", "NONE", "WARNING_ONLY"
-   SIM_COLLISION_CHECK => "NONE",
+   SIM_COLLISION_CHECK => "ALL",
    -- DOA_REG, DOB_REG: Optional output register (0, 1)
    DOA_REG => 0,
    DOB_REG => 0,
@@ -485,8 +491,8 @@ generic map (
    RDADDRCHANGEB => "FALSE",
    -- READ_WIDTH_A/B, WRITE_WIDTH_A/B: Read/write width per port
    READ_WIDTH_A => 36,                                                              -- 0-9
-   READ_WIDTH_B => 0,                                                               -- 0-9
    WRITE_WIDTH_A => 36,                                                             -- 0-9
+   READ_WIDTH_B => 0,                                                               -- 0-9
    WRITE_WIDTH_B => 0,                                                              -- 0-9
    -- RSTREG_PRIORITY_A, RSTREG_PRIORITY_B: Reset or enable priority ("RSTREG", "REGCE")
    RSTREG_PRIORITY_A => "RSTREG",
@@ -532,38 +538,33 @@ port map (
    INJECTDBITERR => '0',      -- 1-bit input: Inject a double-bit error
    INJECTSBITERR => '0',
 
-   -- Port A Data outputs: Port A data
+   -- Port A is for AXI R/W
    DOUTADOUT => ram1_douta,   -- 32-bit output: Port A Data/LSB data
    DOUTPADOUTP => open,       -- 4-bit output: Port A parity/LSB parity
-   -- Port A Address/Control Signals inputs: Port A address and control signals
    ADDRARDADDR => addra,               -- 15-bit input: A/Read port address
    ADDRENA => '0',                     -- 1-bit input: Active-High A/Read port address enable
    CLKARDCLK => S_AXI_ACLK,            -- 1-bit input: A/Read port clock
-   ENARDEN => '1',                     -- 1-bit input: Port A enable/Read enable
-   REGCEAREGCE => '1',                 -- 1-bit input: Port A register enable/Register enable
+   ENARDEN => ram1_ena,                -- 1-bit input: Port A enable/Read enable
+   REGCEAREGCE => '0',                 -- 1-bit input: Port A register enable/Register enable
    RSTRAMARSTRAM => '0',               -- 1-bit input: Port A set/reset
    RSTREGARSTREG => '0',               -- 1-bit input: Port A register set/reset
    SLEEP => '0',                       -- 1-bit input: Sleep Mode
    WEA => ram1_wea,                    -- 4-bit input: Port A write enable
-   -- Port A Data inputs: Port A data
    DINADIN => S_AXI_WDATA,             -- 32-bit input: Port A data/LSB data
    DINPADINP => "0000",                -- 4-bit input: Port A parity/LSB parity
 
-   -- Port B unused...
-   -- Port B Data outputs: Port B data
+   -- Port B is RESERVED
    DOUTBDOUT => open,             -- 32-bit output: Port B data/MSB data
-   DOUTPBDOUTP => open,                -- 4-bit output: Port B parity/MSB parity
-   -- Port B Address/Control Signals inputs: Port B address and control signals
-   ADDRBWRADDR => "000000000000000",   -- 15-bit input: B/Write port address
+   DOUTPBDOUTP => open,              -- 4-bit output: Port B parity/MSB parity
+   ADDRBWRADDR => "000000000000000", -- 15-bit input: B/Write port address
    ADDRENB => '0',                 -- 1-bit input: Active-High B/Write port address enable
    CLKBWRCLK => S_AXI_ACLK,        -- 1-bit input: B/Write port clock
    ENBWREN => '0',                 -- 1-bit input: Port B enable/Write enable
    REGCEB => '0',                  -- 1-bit input: Port B register enable
    RSTRAMB => '0',                 -- 1-bit input: Port B set/reset
    RSTREGB => '0',                 -- 1-bit input: Port B register set/reset
-   WEBWE => "00000000",            -- 8-bit input: Port B write enable/Write enable
-   -- Port B Data inputs: Port B data
-   DINBDIN => X"00000000",          -- 32-bit input: Port B data/MSB data
+   WEBWE => "11111111",            -- 8-bit input: Port B write enable/Write enable
+   DINBDIN => X"00000000",         -- 32-bit input: Port B data/MSB data
    DINPBDINP => "0000"              -- 4-bit input: Port B parity/MSB parity
 
 );
