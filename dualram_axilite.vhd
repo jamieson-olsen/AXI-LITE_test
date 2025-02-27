@@ -9,16 +9,16 @@
 -- adjecent, so the total memory size is 8k bytes and the base address of this module must fall on
 -- an 8k byte boundary.
 
--- AXI address (bytes)     BlockRAM address (15 bits)      
--- BASE+0                  000 0000 0000 0000
--- BASE+4                  000 0000 0000 0001
--- BASE+8                  000 0000 0000 0010
--- BASE+0xFFC              000 0011 1111 1111
--- BASE+0x1000             000 0000 0000 0000
--- BASE+0x1004             000 0000 0000 0001
--- BASE+0x1008             000 0000 0000 0010
--- BASE+0x1FFC             000 0011 1111 1111
--- BASE+0x2000             000 0000 0000 0000
+-- AXI address (bytes)     Memory Location
+-- -------------------     ---------------
+-- BASE+0                  BlockRAM0, word 0
+-- BASE+4                  BlockRAM0, word 1
+-- BASE+8                  BlockRAM0, word 2
+-- BASE+0xFFC              BlockRAM0, word 1023 (last word of this BlockRAM)
+-- BASE+0x1000             BlockRAM1, word 0
+-- BASE+0x1004             BlockRAM1, word 1
+-- BASE+0x1008             BlockRAM1, word 2
+-- BASE+0x1FFC             BlockRAM1, word 1023 (last word of this BlockRAM)
 
 -- read latency has increased by 1 clock due to the sync nature of the blockRAMs, register the
 -- axi_arready signal to delay the blockram output data latching and RVALID signal by one clock...

@@ -37,221 +37,143 @@ component dualram_axilite
 	);
 end component;
 
--- master -> slave signals
+-- AXI master -> slave signals
 
-signal clock: std_logic := '0';
-signal reset_n: std_logic := '0';
+signal S_AXI_ACLK: std_logic := '0';
+constant S_AXI_ACLK_period: time := 10.0ns;  -- 100 MHz
+signal S_AXI_ARESETN: std_logic := '0'; 
+signal S_AXI_AWADDR: std_logic_vector(31 downto 0) := (others=>'0');
+signal S_AXI_AWPROT: std_logic_vector(2 downto 0) := (others=>'0');
+signal S_AXI_AWVALID: std_logic := '0';
+signal S_AXI_WDATA: std_logic_vector(31 downto 0) := (others=>'0');
+signal S_AXI_WSTRB: std_logic_vector(3 downto 0) := (others=>'0');
+signal S_AXI_WVALID: std_logic := '0';
+signal S_AXI_BREADY: std_logic := '0';
+signal S_AXI_ARADDR: std_logic_vector(31 downto 0) := (others=>'0');
+signal S_AXI_ARPROT: std_logic_vector(2 downto 0) := (others=>'0');
+signal S_AXI_ARVALID: std_logic := '0';
+signal S_AXI_RREADY: std_logic := '0';
 
-signal AWADDR: std_logic_vector(31 downto 0) := (others=>'0');
-signal AWPROT: std_logic_vector(2 downto 0) := (others=>'0');
-signal AWVALID: std_logic := '0';
+-- AXI slave -> master signals
 
-signal WDATA: std_logic_vector(31 downto 0) := (others=>'0');
-signal WSTRB: std_logic_vector(3 downto 0) := (others=>'0');
-signal WVALID: std_logic := '0';
-
-signal BREADY: std_logic := '0';
-signal ARADDR: std_logic_vector(31 downto 0) := (others=>'0');
-signal ARPROT: std_logic_vector(2 downto 0) := (others=>'0');
-signal ARVALID: std_logic := '0';
-signal RREADY: std_logic := '0';
-
--- slave -> master signals
-
-signal AWREADY: std_logic;
-signal WREADY: std_logic;
-signal BRESP: std_logic_vector(1 downto 0);
-signal BVALID: std_logic;
-signal ARREADY: std_logic;
-signal RDATA: std_logic_vector(31 downto 0);
-signal RRESP: std_logic_vector(1 downto 0);
-signal RVALID: std_logic;
+signal S_AXI_AWREADY: std_logic;
+signal S_AXI_WREADY: std_logic;
+signal S_AXI_BRESP: std_logic_vector(1 downto 0);
+signal S_AXI_BVALID: std_logic;
+signal S_AXI_ARREADY: std_logic;
+signal S_AXI_RDATA: std_logic_vector(31 downto 0);
+signal S_AXI_RRESP: std_logic_vector(1 downto 0);
+signal S_AXI_RVALID: std_logic;
 
 begin
 
-reset_n <= '0', '1' after 80ns;
-
-clock <= not clock after 5ns;  -- 100 MHz
+S_AXI_ACLK <= not S_AXI_ACLK after S_AXI_ACLK_period/2;
 
 aximasterproc: process
+
+procedure axipoke( constant addr: in std_logic_vector;
+                   constant data: in std_logic_vector ) is
 begin
-    wait for 200ns;
+    wait until rising_edge(S_AXI_ACLK);
+    S_AXI_AWADDR <= addr;
+    S_AXI_AWVALID <= '1';
+    S_AXI_WDATA <= data;
+    S_AXI_WVALID <= '1';
+    S_AXI_BREADY <= '1';
+    S_AXI_WSTRB <= "1111";
+    wait until (rising_edge(S_AXI_ACLK) and S_AXI_AWREADY='1' and S_AXI_WREADY='1');
+    report "axipoke: address=0x" & to_hstring(addr) & " data=0x" & to_hstring(data) severity WARNING; 
+    S_AXI_AWADDR <= X"00000000";
+    S_AXI_AWVALID <= '0';
+    S_AXI_WDATA <= X"00000000";
+    S_AXI_AWVALID <= '0';
+    S_AXI_WSTRB <= "0000";
+    wait until (rising_edge(S_AXI_ACLK) and S_AXI_BVALID='1');
+    S_AXI_BREADY <= '0';
+end procedure axipoke;
 
-    wait until rising_edge(clock);
-    AWADDR <= X"80000000"; -- write to RAM0
-    AWVALID <= '1';
-    WDATA <= X"DEADBEEF";
-    WVALID <= '1';
-    BREADY <= '1';
-    WSTRB <= "1111";
-    wait until (rising_edge(clock) and AWREADY='1' and WREADY='1');
-    AWADDR <= X"00000000";
-    AWVALID <= '0';
-    WDATA <= X"00000000";
-    AWVALID <= '0';
-    WSTRB <= "0000";
-    wait until (rising_edge(clock) and BVALID='1');
-    BREADY <= '0';
+procedure axipeek( constant addr: in std_logic_vector ) is
+begin
+    wait until rising_edge(S_AXI_ACLK);
+    S_AXI_ARADDR <= addr;
+    S_AXI_ARVALID <= '1';
+    S_AXI_RREADY <= '1';
+    wait until (rising_edge(S_AXI_ACLK) and S_AXI_ARREADY='1');
+    S_AXI_ARADDR <= X"00000000";
+    S_AXI_ARVALID <= '0';
+    wait until (rising_edge(S_AXI_ACLK) and S_AXI_RVALID='1');
+    report "axipeek: address=0x" & to_hstring(addr) & " data=0x" & to_hstring(S_AXI_RDATA) severity WARNING; 
+    S_AXI_RREADY <= '0';
+end procedure axipeek;
 
-    wait for 50ns;
+begin
 
-    wait until rising_edge(clock);
-    AWADDR <= X"80000004"; -- write to RAM0
-    AWVALID <= '1';
-    WDATA <= X"AA551234";
-    WVALID <= '1';
-    BREADY <= '1';
-    WSTRB <= "1111";
-    wait until (rising_edge(clock) and AWREADY='1' and WREADY='1');
-    AWADDR <= X"00000000";
-    AWVALID <= '0';
-    WDATA <= X"00000000";
-    AWVALID <= '0';
-    WSTRB <= "0000";
-    wait until (rising_edge(clock) and BVALID='1');
-    BREADY <= '0';
+    wait for 100ns;
+    S_AXI_ARESETN <= '1'; -- release AXI reset
 
-    wait for 50ns;
+    -- write a few words to the lower ram block...
+    
+    wait for 100ns;
+    axipoke(addr => X"00000000", data => X"00000012");
+    wait for 100ns;
+    axipoke(addr => X"00000004", data => X"00000034"); 
+    wait for 100ns;
+    axipoke(addr => X"00000008", data => X"00000056"); 
+       
+    -- write a few words to the upper ram block...
+    
+    wait for 100ns;
+    axipoke(addr => X"00001000", data => X"deadbeef");
+    wait for 100ns;
+    axipoke(addr => X"00001004", data => X"babecafe"); 
+    wait for 100ns;
+    axipoke(addr => X"00001008", data => X"99c0ffee"); 
 
-    wait until rising_edge(clock);
-    AWADDR <= X"80000008"; -- write to RAM0
-    AWVALID <= '1';
-    WDATA <= X"12345678";
-    WVALID <= '1';
-    BREADY <= '1';
-    WSTRB <= "1111";
-    wait until (rising_edge(clock) and AWREADY='1' and WREADY='1');
-    AWADDR <= X"00000000";
-    AWVALID <= '0';
-    WDATA <= X"00000000";
-    AWVALID <= '0';
-    WSTRB <= "0000";
-    wait until (rising_edge(clock) and BVALID='1');
-    BREADY <= '0';
+    -- read them back...
 
-    wait for 50ns;
+    wait for 1us;
+    
+    axipeek(addr => X"00000000"); 
+    wait for 100ns;
+    axipeek(addr => X"00000004");
+    wait for 100ns;
+    axipeek(addr => X"00000008");
+    wait for 100ns;
 
-    wait until rising_edge(clock);
-    AWADDR <= X"80001000"; -- write to RAM1
-    AWVALID <= '1';
-    WDATA <= X"CAFEBABE";
-    WVALID <= '1';
-    BREADY <= '1';
-    WSTRB <= "1111";
-    wait until (rising_edge(clock) and AWREADY='1' and WREADY='1');
-    AWADDR <= X"00000000";
-    AWVALID <= '0';
-    WDATA <= X"00000000";
-    AWVALID <= '0';
-    WSTRB <= "0000";
-    wait until (rising_edge(clock) and BVALID='1');
-    BREADY <= '0';
+    axipeek(addr => X"00001000"); 
+    wait for 100ns;
+    axipeek(addr => X"00001004");
+    wait for 100ns;
+    axipeek(addr => X"00001008");
 
-    wait for 50ns;
-
-    wait until rising_edge(clock);
-    AWADDR <= X"80001004"; -- write to RAM1
-    AWVALID <= '1';
-    WDATA <= X"00C0FFEE";
-    WVALID <= '1';
-    BREADY <= '1';
-    WSTRB <= "1111";
-    wait until (rising_edge(clock) and AWREADY='1' and WREADY='1');
-    AWADDR <= X"00000000";
-    AWVALID <= '0';
-    WDATA <= X"00000000";
-    AWVALID <= '0';
-    WSTRB <= "0000";
-    wait until (rising_edge(clock) and BVALID='1');
-    BREADY <= '0';
-
-    wait for 50ns;
-
-    wait until rising_edge(clock);
-    ARADDR <= X"80000000"; -- read from RAM0
-    ARVALID <= '1';
-    RREADY <= '1';
-    wait until (rising_edge(clock) and ARREADY='1');
-    ARADDR <= X"00000000";
-    ARVALID <= '0';
-    wait until (rising_edge(clock) and RVALID='1');
-    RREADY <= '0';
-
-    wait for 50ns;
-
-    wait until rising_edge(clock);
-    ARADDR <= X"80001000"; -- read from RAM1
-    ARVALID <= '1';
-    RREADY <= '1';
-    wait until (rising_edge(clock) and ARREADY='1');
-    ARADDR <= X"00000000";
-    ARVALID <= '0';
-    wait until (rising_edge(clock) and RVALID='1');
-    RREADY <= '0';	
-	
-    wait for 50ns;
-
-    wait until rising_edge(clock);
-    ARADDR <= X"80000004";  -- read from RAM0
-    ARVALID <= '1';
-    RREADY <= '1';
-    wait until (rising_edge(clock) and ARREADY='1');
-    ARADDR <= X"00000000";
-    ARVALID <= '0';
-    wait until (rising_edge(clock) and RVALID='1');
-    RREADY <= '0';
-
-    wait for 50ns;
-
-    wait until rising_edge(clock);
-    ARADDR <= X"80000008";  -- read from RAM0
-    ARVALID <= '1';
-    RREADY <= '1';
-    wait until (rising_edge(clock) and ARREADY='1');
-    ARADDR <= X"00000000";
-    ARVALID <= '0';
-    wait until (rising_edge(clock) and RVALID='1');
-    RREADY <= '0';
-
-    wait for 50ns;
-
-    wait until rising_edge(clock);
-    ARADDR <= X"80001004"; -- read from RAM1 
-    ARVALID <= '1';
-    RREADY <= '1';
-    wait until (rising_edge(clock) and ARREADY='1');
-    ARADDR <= X"00000000";
-    ARVALID <= '0';
-    wait until (rising_edge(clock) and RVALID='1');
-    RREADY <= '0';
-	
     wait;
+
 end process aximasterproc;
 
 dut: dualram_axilite
 	generic map( C_S_AXI_DATA_WIDTH => 32, C_S_AXI_ADDR_WIDTH => 32 )
 	port map(
-		S_AXI_ACLK => clock,
-		S_AXI_ARESETN => reset_n,
-		S_AXI_AWADDR => awaddr,
-		S_AXI_AWPROT => awprot,
-		S_AXI_AWVALID => awvalid,
-		S_AXI_AWREADY => awready,
-		S_AXI_WDATA => wdata,
-		S_AXI_WSTRB => wstrb,
-		S_AXI_WVALID => wvalid,
-		S_AXI_WREADY => wready,
-		S_AXI_BRESP => bresp,
-		S_AXI_BVALID => bvalid,
-		S_AXI_BREADY => bready,
-		S_AXI_ARADDR => araddr,
-		S_AXI_ARPROT => arprot,
-		S_AXI_ARVALID => arvalid,
-		S_AXI_ARREADY => arready,
-		S_AXI_RDATA => rdata,
-		S_AXI_RRESP => rresp,
-		S_AXI_RVALID => rvalid,
-		S_AXI_RREADY => rready
+		S_AXI_ACLK => S_AXI_ACLK,
+        S_AXI_ARESETN => S_AXI_ARESETN,
+        S_AXI_AWADDR => S_AXI_AWADDR,
+        S_AXI_AWPROT => S_AXI_AWPROT,
+        S_AXI_AWVALID => S_AXI_AWVALID,
+        S_AXI_AWREADY => S_AXI_AWREADY,
+        S_AXI_WDATA => S_AXI_WDATA,
+        S_AXI_WSTRB => S_AXI_WSTRB,
+        S_AXI_WVALID => S_AXI_WVALID,
+        S_AXI_WREADY => S_AXI_WREADY, 
+        S_AXI_BRESP => S_AXI_BRESP,
+        S_AXI_BVALID => S_AXI_BVALID,
+        S_AXI_BREADY => S_AXI_BREADY,
+        S_AXI_ARADDR => S_AXI_ARADDR,
+        S_AXI_ARPROT => S_AXI_ARPROT,
+        S_AXI_ARVALID => S_AXI_ARVALID,
+        S_AXI_ARREADY => S_AXI_ARREADY,
+        S_AXI_RDATA => S_AXI_RDATA,
+        S_AXI_RRESP => S_AXI_RRESP,
+        S_AXI_RVALID => S_AXI_RVALID,
+        S_AXI_RREADY => S_AXI_RREADY
 	);
 
 end dualram_axilite_testbench_arch;
